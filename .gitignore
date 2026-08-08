@@ -1,0 +1,14 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary and log files
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# AidBio history/cache files
+.aidbio/
