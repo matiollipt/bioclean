@@ -27,7 +27,8 @@
 To install `clean-disk` on any Ubuntu/Linux computer:
 
 ```bash
-cd /path/to/aidbio/bin
+git clone git@github.com:matiollipt/clean-disk.git
+cd clean-disk
 ./install.sh
 ```
 
