@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# AidBio AI Disk Manager - Installer & Deployer
+# AidBio AI - bioclean Agentic System Orchestrator Installer
 # Authors: Cleverson Matiolli, PhD and Gemini
-# Version: 1.0.0
+# Version: 2.0.0
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
-# ANSI Colors
 BOLD='\033[1m'
 NC='\033[0m'
 GREEN='\033[0;32m'
@@ -17,62 +16,47 @@ RED='\033[0;31m'
 banner() {
     echo -e "${CYAN}${BOLD}"
     echo "================================================================="
-    echo "            AidBio AI Disk Manager - Installer                  "
+    echo "            AidBio AI - bioclean System Orchestrator            "
+    echo "      High-Performance Linux Agentic Environment Installer      "
     echo "      Authors: Cleverson Matiolli, PhD and Gemini               "
     echo "================================================================="
     echo -e "${NC}"
 }
 
-INSTALL_DIR="${HOME}/.local/share/aidbio/disk-manager"
 BIN_DIR="${HOME}/.local/bin"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-check_dependencies() {
-    echo -e "${BOLD}Checking System Dependencies...${NC}"
-
-    local missing=()
-    for cmd in bash python3 rsync df du lsblk; do
-        if ! command -v "$cmd" &>/dev/null; then
-            missing+=("$cmd")
-        else
-            echo -e "  ✔ Found: ${GREEN}$cmd${NC}"
-        fi
-    done
-
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        echo -e "${RED}ERROR: The following required dependencies are missing: ${missing[*]}${NC}"
-        echo "Please install them via your system package manager (e.g. sudo apt install ${missing[*]})"
-        exit 1
+check_rust() {
+    echo -e "${BOLD}Checking Rust Toolchain...${NC}"
+    if [ -f "$HOME/.cargo/env" ]; then
+        # shellcheck disable=SC1091
+        source "$HOME/.cargo/env"
     fi
 
-    # Check python psutil
-    if ! python3 -c "import psutil" 2>/dev/null; then
-        echo -e "${YELLOW}Notice: Python 'psutil' module is missing. Attempting to install via pip...${NC}"
-        python3 -m pip install psutil --user 2>/dev/null || echo -e "${YELLOW}Warning: psutil auto-install skipped. Fallbacks will be used.${NC}"
-    else
-        echo -e "  ✔ Found: ${GREEN}python3 psutil${NC}"
+    if ! command -v cargo &>/dev/null; then
+        echo -e "${YELLOW}Rust toolchain not found. Installing via rustup...${NC}"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile default --default-toolchain stable
+        # shellcheck disable=SC1091
+        source "$HOME/.cargo/env"
     fi
+
+    echo -e "  ✔ Found: ${GREEN}$(cargo --version)${NC}"
+    echo -e "  ✔ Found: ${GREEN}$(rustc --version)${NC}"
 }
 
 configure_path() {
     echo -e "\n${BOLD}Configuring Shell PATH...${NC}"
+    mkdir -p "$BIN_DIR"
 
-    local path_line='export PATH="$HOME/.local/bin:$PATH"'
+    local path_line='export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"'
     local added=0
 
-    # Add to PATH in current session if missing
-    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-        export PATH="$BIN_DIR:$PATH"
-    fi
-
-    # Update shell configuration files
     for rc_file in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
         if [[ -f "$rc_file" ]]; then
             if ! grep -qs 'local/bin' "$rc_file"; then
-                echo -e "\n# Added by AidBio AI Disk Manager" >> "$rc_file"
+                echo -e "\n# Added by AidBio bioclean" >> "$rc_file"
                 echo "$path_line" >> "$rc_file"
-                echo -e "  ✔ Added PATH configuration to ${GREEN}$rc_file${NC}"
+                echo -e "  ✔ Added PATH to ${GREEN}$rc_file${NC}"
                 added=1
             else
                 echo -e "  ✔ PATH already configured in ${GREEN}$rc_file${NC}"
@@ -81,55 +65,51 @@ configure_path() {
     done
 
     if [[ $added -eq 1 ]]; then
-        echo -e "${YELLOW}Note: Restart your terminal session or run 'source ~/.bashrc' to apply PATH changes.${NC}"
+        echo -e "${YELLOW}Note: Restart your terminal or run 'source ~/.bashrc' to apply PATH changes.${NC}"
     fi
 }
 
 install_app() {
     banner
-    check_dependencies
+    check_rust
+    configure_path
 
-    echo -e "\n${BOLD}Installing AidBio AI Disk Manager...${NC}"
+    echo -e "\n${BOLD}Compiling bioclean in Release Mode...${NC}"
+    cd "$SCRIPT_DIR"
+    cargo build --release
 
-    # Target directory structure
-    mkdir -p "$INSTALL_DIR/lib" "$BIN_DIR"
-
-    # Copy files
-    if [[ -d "$SCRIPT_DIR/lib" ]]; then
-        cp -r "$SCRIPT_DIR/lib"/* "$INSTALL_DIR/lib/"
-        cp "$SCRIPT_DIR/clean-disk.sh" "$INSTALL_DIR/clean-disk.sh"
-    elif [[ -f "$SCRIPT_DIR/clean-disk.sh" ]]; then
-        cp "$SCRIPT_DIR/clean-disk.sh" "$INSTALL_DIR/clean-disk.sh"
-        cp -r "$SCRIPT_DIR/lib" "$INSTALL_DIR/"
-    else
-        echo -e "${RED}ERROR: Source files not found in $SCRIPT_DIR${NC}"
+    local release_bin="$SCRIPT_DIR/target/release/bioclean"
+    if [[ ! -f "$release_bin" ]]; then
+        echo -e "${RED}ERROR: Build failed; binary not found at $release_bin${NC}"
         exit 1
     fi
 
-    # Set executable permissions
-    chmod +x "$INSTALL_DIR/clean-disk.sh" "$INSTALL_DIR/lib"/*.sh
+    echo -e "\n${BOLD}Installing Binary...${NC}"
+    cp "$release_bin" "$BIN_DIR/bioclean"
+    chmod +x "$BIN_DIR/bioclean"
+    echo -e "  ✔ Installed: ${GREEN}$BIN_DIR/bioclean${NC}"
 
-    # Create launcher symlink
-    ln -sf "$INSTALL_DIR/clean-disk.sh" "$BIN_DIR/clean-disk"
-    echo -e "  ✔ Created symlink: ${GREEN}$BIN_DIR/clean-disk${NC} -> ${CYAN}$INSTALL_DIR/clean-disk.sh${NC}"
-
-    configure_path
+    # Setup backward-compatible clean-disk symlink
+    ln -sf "$BIN_DIR/bioclean" "$BIN_DIR/clean-disk"
+    echo -e "  ✔ Created legacy symlink: ${GREEN}$BIN_DIR/clean-disk${NC} -> ${CYAN}$BIN_DIR/bioclean${NC}"
 
     echo -e "\n${GREEN}${BOLD}=================================================================${NC}"
-    echo -e "${GREEN}${BOLD}   AidBio AI Disk Manager Installed Successfully!               ${NC}"
+    echo -e "${GREEN}${BOLD}       bioclean v2.0.0 Installed Successfully!                   ${NC}"
     echo -e "${GREEN}${BOLD}=================================================================${NC}"
-    echo -e "\nYou can now run ${CYAN}${BOLD}clean-disk${NC} from any terminal directory."
-    echo -e "Try running: ${YELLOW}clean-disk --help${NC}\n"
+    echo -e "\nYou can now run ${CYAN}${BOLD}bioclean${NC} (or legacy ${CYAN}${BOLD}clean-disk${NC}) from any directory."
+    echo -e "  • Interactive TUI    : ${YELLOW}bioclean${NC}"
+    echo -e "  • System Health Diag : ${YELLOW}bioclean diagnose${NC}"
+    echo -e "  • Cache Space Cleanup: ${YELLOW}bioclean free cache${NC}"
+    echo -e "  • Prepare Crunch Work: ${YELLOW}bioclean workflow prepare-crunch${NC}"
+    echo -e "  • Complete CLI Help  : ${YELLOW}bioclean --help${NC}\n"
 }
 
 uninstall_app() {
     banner
-    echo -e "${YELLOW}${BOLD}Uninstalling AidBio AI Disk Manager...${NC}"
-
-    rm -rf "$INSTALL_DIR"
+    echo -e "${YELLOW}${BOLD}Uninstalling bioclean...${NC}"
+    rm -f "$BIN_DIR/bioclean"
     rm -f "$BIN_DIR/clean-disk"
-
-    echo -e "${GREEN}AidBio AI Disk Manager uninstalled successfully.${NC}"
+    echo -e "${GREEN}bioclean uninstalled successfully.${NC}"
 }
 
 if [[ "${1:-}" == "--uninstall" ]]; then
