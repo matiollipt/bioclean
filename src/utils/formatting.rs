@@ -35,20 +35,3 @@ pub fn parse_size_to_bytes(s: &str) -> Option<u64> {
         s.parse::<u64>().ok()
     }
 }
-
-pub fn format_duration_secs(secs: u64) -> String {
-    let days = secs / 86400;
-    let hours = (secs % 86400) / 3600;
-    let mins = (secs % 3600) / 60;
-    let s = secs % 60;
-
-    if days > 0 {
-        format!("{}d {}h {}m", days, hours, mins)
-    } else if hours > 0 {
-        format!("{}h {}m {}s", hours, mins, s)
-    } else if mins > 0 {
-        format!("{}m {}s", mins, s)
-    } else {
-        format!("{}s", s)
-    }
-}

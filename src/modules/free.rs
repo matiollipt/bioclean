@@ -14,7 +14,6 @@ pub struct ReclaimableItem {
     pub name: String,
     pub description: String,
     pub estimated_bytes: u64,
-    pub path: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -48,7 +47,6 @@ pub fn estimate_reclaimable() -> ReclaimableSummary {
             name: "APT Package Cache".to_string(),
             description: "/var/cache/apt/archives .deb package archives".to_string(),
             estimated_bytes: apt_bytes,
-            path: Some(apt_path.to_string_lossy().to_string()),
         });
     }
 
@@ -60,7 +58,6 @@ pub fn estimate_reclaimable() -> ReclaimableSummary {
             name: "Python Pip Cache".to_string(),
             description: "~/.cache/pip downloaded wheels and tarballs".to_string(),
             estimated_bytes: pip_bytes,
-            path: Some(pip_path.to_string_lossy().to_string()),
         });
     }
 
@@ -72,7 +69,6 @@ pub fn estimate_reclaimable() -> ReclaimableSummary {
             name: "UV Package Cache".to_string(),
             description: "~/.cache/uv package and wheel cache".to_string(),
             estimated_bytes: uv_bytes,
-            path: Some(uv_path.to_string_lossy().to_string()),
         });
     }
 
@@ -85,7 +81,6 @@ pub fn estimate_reclaimable() -> ReclaimableSummary {
             name: "Conda / Mamba Package Cache".to_string(),
             description: "Conda package tarballs (.conda, .tar.bz2)".to_string(),
             estimated_bytes: conda_bytes,
-            path: Some(conda_path.to_string_lossy().to_string()),
         });
     }
 
@@ -102,7 +97,6 @@ pub fn estimate_reclaimable() -> ReclaimableSummary {
             name: "Browser & Build Caches".to_string(),
             description: "Thumbnails, Cypress, node-gyp build caches".to_string(),
             estimated_bytes: misc_bytes,
-            path: Some("~/.cache/(thumbnails, Cypress, node-gyp)".to_string()),
         });
     }
 
@@ -121,7 +115,6 @@ pub fn estimate_reclaimable() -> ReclaimableSummary {
                                 name: "Systemd Journal Logs".to_string(),
                                 description: "Archived system journal logs".to_string(),
                                 estimated_bytes: bytes,
-                                path: Some("/var/log/journal".to_string()),
                             });
                         }
                     }
@@ -150,7 +143,6 @@ pub fn estimate_reclaimable() -> ReclaimableSummary {
                     name: "Docker Containers & Build Layers".to_string(),
                     description: "Unused Docker images, containers, and build caches".to_string(),
                     estimated_bytes: total_docker_reclaimable,
-                    path: Some("/var/lib/docker".to_string()),
                 });
             }
         }
@@ -167,7 +159,12 @@ pub fn clean_cache(dry_run: bool, auto_yes: bool, ollama: &OllamaClient, model: 
 
     println!("Identified reclaimable artifacts: {}", format_bytes(summary.total_bytes).bright_yellow());
     for item in &summary.items {
-        println!("  • {:<35} : {}", item.name.bold(), format_bytes(item.estimated_bytes).yellow());
+        println!(
+            "  • {:<35} : {}  {}",
+            item.name.bold(),
+            format_bytes(item.estimated_bytes).yellow(),
+            item.description.dimmed()
+        );
     }
 
     if dry_run {
