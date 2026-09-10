@@ -89,14 +89,10 @@ install_app() {
     chmod +x "$BIN_DIR/bioclean"
     echo -e "  ✔ Installed: ${GREEN}$BIN_DIR/bioclean${NC}"
 
-    # Setup backward-compatible clean-disk symlink
-    ln -sf "$BIN_DIR/bioclean" "$BIN_DIR/clean-disk"
-    echo -e "  ✔ Created legacy symlink: ${GREEN}$BIN_DIR/clean-disk${NC} -> ${CYAN}$BIN_DIR/bioclean${NC}"
-
     echo -e "\n${GREEN}${BOLD}=================================================================${NC}"
     echo -e "${GREEN}${BOLD}       bioclean v2.0.0 Installed Successfully!                   ${NC}"
     echo -e "${GREEN}${BOLD}=================================================================${NC}"
-    echo -e "\nYou can now run ${CYAN}${BOLD}bioclean${NC} (or legacy ${CYAN}${BOLD}clean-disk${NC}) from any directory."
+    echo -e "\nYou can now run ${CYAN}${BOLD}bioclean${NC} from any directory."
     echo -e "  • Interactive TUI    : ${YELLOW}bioclean${NC}"
     echo -e "  • System Health Diag : ${YELLOW}bioclean diagnose${NC}"
     echo -e "  • Cache Space Cleanup: ${YELLOW}bioclean free cache${NC}"
@@ -108,7 +104,6 @@ uninstall_app() {
     banner
     echo -e "${YELLOW}${BOLD}Uninstalling bioclean...${NC}"
     rm -f "$BIN_DIR/bioclean"
-    rm -f "$BIN_DIR/clean-disk"
     echo -e "${GREEN}bioclean uninstalled successfully.${NC}"
 }
 

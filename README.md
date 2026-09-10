@@ -80,8 +80,8 @@ Every destructive action is preceded by an AI-verified diagnostic and safety int
 To install or upgrade `bioclean` on any Linux workstation:
 
 ```bash
-git clone git@github.com:matiollipt/clean-disk.git
-cd clean-disk
+git clone git@github.com:matiollipt/bioclean.git
+cd bioclean
 ./install.sh
 ```
 
@@ -89,8 +89,7 @@ The installer will:
 1. Auto-detect or install the Rust toolchain via `rustup`.
 2. Compile `bioclean` in release mode (`cargo build --release`).
 3. Install the optimized binary to `~/.local/bin/bioclean`.
-4. Create the backward-compatible symlink `~/.local/bin/clean-disk -> ~/.local/bin/bioclean`.
-5. Configure shell `PATH` in `~/.bashrc`, `~/.zshrc`, and `~/.profile`.
+4. Configure shell `PATH` in `~/.bashrc`, `~/.zshrc`, and `~/.profile`.
 
 ---
 
@@ -129,14 +128,4 @@ bioclean hdd scan
 bioclean hdd migrate
 bioclean history list
 bioclean history undo
-```
-
-### Backward Compatibility (`clean-disk`)
-Existing scripts and habits using `clean-disk` are 100% compatible:
-```bash
-clean-disk -a      # Equivalent to bioclean diagnose
-clean-disk -c      # Equivalent to bioclean free cache
-clean-disk -m      # Equivalent to bioclean hdd migrate
-clean-disk -u      # Equivalent to bioclean history undo
-clean-disk -l      # Equivalent to bioclean history list
 ```

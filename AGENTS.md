@@ -29,7 +29,7 @@ Every destructive action or significant hardware transition is preceded by verif
   - `/snap/bin/glow`: Markdown CLI pager and renderer.
   - `/usr/bin/batcat`: Syntax-highlighting pager.
   - `/usr/bin/docker`: Container runtime for optional sandboxing / testing.
-- **Binary Install Target:** `~/.local/bin/bioclean` with backward-compatible symlink `~/.local/bin/clean-disk`.
+- **Binary Install Target:** `~/.local/bin/bioclean`.
 
 ---
 
@@ -135,7 +135,7 @@ bioclean/
 - Do **NOT** add top-level legacy flags back to `Cli` in `src/cli/mod.rs`.
 - Root CLI subcommands must remain clean, modular, and domain-focused:
   `config`, `diagnose`, `free`, `power`, `scan`, `workflow`, `hdd`, `history`.
-- Any legacy invocations (e.g. from older shell scripts calling `clean-disk -a` or `bioclean -c`) must be handled transparently in `src/main.rs`'s backward-compatibility interceptor with an informative deprecation notice.
+- Legacy invocation support for the old `clean-disk` name and its short flags (`-a`, `-c`, `-m`, `-u`, `-l`) has been removed; `bioclean` is the sole supported binary name and subcommands are the only supported interface.
 
 ### 5.7 Configuration Module Discipline
 - New persistent settings must be added to `Config` in `src/config.rs` with `#[serde(default = "...")]` to guarantee backward compatibility with existing `config.toml` files.

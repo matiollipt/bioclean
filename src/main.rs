@@ -23,57 +23,9 @@ use modules::history::HistoryManager;
 use utils::formatting::parse_size_to_bytes;
 
 fn main() -> Result<()> {
-    let raw_args: Vec<String> = std::env::args().collect();
-    let invoked_name = raw_args
-        .first()
-        .map(|s| Path::new(s).file_name().unwrap_or_default().to_string_lossy().to_string())
-        .unwrap_or_default();
-
     let mut config = Config::load();
     let ollama = OllamaClient::new(&config.ollama_url);
     let history_mgr = HistoryManager::new(&config.history_file);
-
-    // 1. Handle Legacy Invocation (backward compatibility with clean-disk and legacy flags)
-    let has_legacy_flags = raw_args.iter().any(|a| {
-        matches!(
-            a.as_str(),
-            "-a" | "--audit" | "-c" | "--clean" | "-m" | "--migrate" | "-u" | "--undo" | "-l" | "--history-log"
-        )
-    });
-
-    if invoked_name == "clean-disk" || has_legacy_flags {
-        let model = ollama.select_best_model(if config.default_model.is_empty() {
-            None
-        } else {
-            Some(&config.default_model)
-        });
-
-        if raw_args.iter().any(|a| a == "-a" || a == "--audit") {
-            eprintln!("{}", "⚠️  Notice: '-a / --audit' is legacy. Forwarding to 'bioclean diagnose'...".yellow());
-            modules::diagnose::run_diagnose(&ollama, &model, &config, None, false)?;
-            return Ok(());
-        }
-        if raw_args.iter().any(|a| a == "-c" || a == "--clean") {
-            eprintln!("{}", "⚠️  Notice: '-c / --clean' is legacy. Forwarding to 'bioclean free cache'...".yellow());
-            modules::free::clean_cache(false, false, &ollama, &model)?;
-            return Ok(());
-        }
-        if raw_args.iter().any(|a| a == "-m" || a == "--migrate") {
-            eprintln!("{}", "⚠️  Notice: '-m / --migrate' is legacy. Forwarding to 'bioclean hdd migrate'...".yellow());
-            modules::hdd::migrate_bio_datasets(None, &history_mgr, false)?;
-            return Ok(());
-        }
-        if raw_args.iter().any(|a| a == "-u" || a == "--undo") {
-            eprintln!("{}", "⚠️  Notice: '-u / --undo' is legacy. Forwarding to 'bioclean history undo'...".yellow());
-            history_mgr.undo_last_session(false)?;
-            return Ok(());
-        }
-        if raw_args.iter().any(|a| a == "-l" || a == "--history-log") {
-            eprintln!("{}", "⚠️  Notice: '-l / --history-log' is legacy. Forwarding to 'bioclean history list'...".yellow());
-            history_mgr.list_history()?;
-            return Ok(());
-        }
-    }
 
     let cli = Cli::parse();
     let model = ollama.select_best_model(cli.model.as_deref().or(if config.default_model.is_empty() {
