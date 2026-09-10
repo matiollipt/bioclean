@@ -10,8 +10,9 @@ use crate::modules::free::{clean_cache, clean_logs, clean_orphans};
 use crate::modules::power::set_performance_profile;
 use crate::modules::scan::scan_heavy_files;
 use crate::utils::formatting::format_bytes;
+use crate::modules::free::estimate_reclaimable;
 use crate::utils::procfs::{read_active_sockets, read_meminfo, read_thermal_zones};
-use crate::utils::system::run_fstrim;
+use crate::utils::system::{run_fstrim, ActionPreview, RiskLevel};
 
 pub fn workflow_prepare_crunch(
     scratch_dir: &str,
@@ -22,6 +23,18 @@ pub fn workflow_prepare_crunch(
 ) -> Result<()> {
     println!("{}", "\n🚀 [WORKFLOW] Preparing Workstation for Heavy Computation (Prepare-Crunch)".bright_purple().bold());
     println!("{}", "=".repeat(75).dimmed());
+
+    let reclaimable = estimate_reclaimable();
+    let preview = ActionPreview {
+        action: "Run prepare-crunch workflow (clean caches/logs, switch to performance profile)".to_string(),
+        current_state: format!("{} reclaimable across caches; CPU governor not yet switched", format_bytes(reclaimable.total_bytes)),
+        future_state: "Caches and recent logs cleared; CPU governor set to performance".to_string(),
+        risk: RiskLevel::Safe,
+    };
+    if !dry_run && !auto_yes && !preview.confirm() {
+        println!("{}", "Prepare-crunch workflow cancelled.".yellow());
+        return Ok(());
+    }
 
     // 1. Scan scratch directory
     println!("\n{}", "Step 1/5: Checking Scratch Disk Capacity & Datasets".bold());
@@ -79,6 +92,18 @@ pub fn workflow_maintenance(
     println!("{}", "\n🛠 [WORKFLOW] Running Complete Workstation Maintenance".bright_purple().bold());
     println!("{}", "=".repeat(75).dimmed());
 
+    let reclaimable = estimate_reclaimable();
+    let preview = ActionPreview {
+        action: "Run maintenance workflow (diagnose, clean caches/logs/orphans, fstrim)".to_string(),
+        current_state: format!("{} reclaimable across caches; journal and orphan packages not yet cleared", format_bytes(reclaimable.total_bytes)),
+        future_state: format!("~{} reclaimed; SSDs trimmed; maintenance report written", format_bytes(reclaimable.total_bytes)),
+        risk: RiskLevel::Safe,
+    };
+    if !dry_run && !auto_yes && !preview.confirm() {
+        println!("{}", "Maintenance workflow cancelled.".yellow());
+        return Ok(());
+    }
+
     // 1. Audit & Diagnostics
     println!("\n{}", "Step 1/4: Running Comprehensive Health Diagnostics".bold());
     let report = run_diagnose(ollama, model, config, None, false)?;
@@ -94,16 +119,26 @@ pub fn workflow_maintenance(
     if dry_run {
         println!("{}", "  🔎 [DRY RUN] Would execute fstrim -av across all mounted SSDs.".bright_green());
     } else {
-        match run_fstrim() {
-            Ok(trim_out) => {
-                for line in trim_out.lines() {
-                    println!("  {}", line.dimmed());
+        let fstrim_preview = ActionPreview {
+            action: "Run fstrim across all mounted filesystems".to_string(),
+            current_state: "Discarded/unused blocks not yet reclaimed by the SSD controller".to_string(),
+            future_state: "Unused blocks trimmed; no data is modified, only idle space reclaimed".to_string(),
+            risk: RiskLevel::Safe,
+        };
+        if auto_yes || fstrim_preview.confirm() {
+            match run_fstrim() {
+                Ok(trim_out) => {
+                    for line in trim_out.lines() {
+                        println!("  {}", line.dimmed());
+                    }
+                    println!("{}", "  ✔ SSD TRIM completed successfully.".bright_green());
                 }
-                println!("{}", "  ✔ SSD TRIM completed successfully.".bright_green());
+                Err(e) => {
+                    println!("  ⚠️ fstrim execution skipped: {}", e);
+                }
             }
-            Err(e) => {
-                println!("  ⚠️ fstrim execution skipped: {}", e);
-            }
+        } else {
+            println!("{}", "  fstrim skipped by user.".yellow());
         }
     }
 

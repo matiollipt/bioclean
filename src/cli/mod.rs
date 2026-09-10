@@ -271,6 +271,10 @@ pub enum HddAction {
         #[arg(short, long)]
         target_hdd: Option<String>,
 
+        /// Simulate the migration plan without moving any files
+        #[arg(long)]
+        dry_run: bool,
+
         /// Auto-confirm all prompts
         #[arg(short = 'y', long)]
         yes: bool,

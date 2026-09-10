@@ -6,6 +6,8 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use crate::ai::client::{OllamaClient, OllamaOptions};
+use crate::ai::modelfile::{self, ModelfileParams};
+use crate::ai::prompts::{self, DEFAULT_MODELFILE_ROLE};
 
 fn default_ollama_url() -> String {
     "http://localhost:11434".to_string()
@@ -431,7 +433,7 @@ impl Config {
         }
 
         // 5. Context Size (num_ctx)
-        let ctx_prompt = format!("5. Context Size in tokens [{}]", self.context_size);
+        let ctx_prompt = format!("5. Context Size (Tokens) [{}]", self.context_size);
         let new_ctx = prompt_line(&ctx_prompt)?;
         if !new_ctx.is_empty() {
             self.set_param("context_size", &new_ctx)?;
@@ -482,6 +484,31 @@ impl Config {
         self.save()?;
         println!("\n{}", "✔ Configuration successfully saved!".bright_green().bold());
         println!("File: {}", Self::config_path().display().to_string().bright_cyan());
+
+        // 12. Optional: generate an Ollama Modelfile from these settings
+        let modelfile_prompt = prompt_line("\n12. Generate an Ollama Modelfile from these settings now? [Y/n]")?;
+        let generate = modelfile_prompt.is_empty() || matches!(modelfile_prompt.to_lowercase().as_str(), "y" | "yes");
+        if generate {
+            let base_model = if self.default_model.is_empty() {
+                let resolved = ollama.select_best_model(None);
+                println!("  {} default_model is auto-detect; using resolved model '{}' as the Modelfile base.", "ℹ".yellow(), resolved.bright_cyan());
+                resolved
+            } else {
+                self.default_model.clone()
+            };
+            let params = ModelfileParams {
+                base_model,
+                temperature: self.temperature,
+                top_k: self.top_k,
+                context_size: self.context_size,
+                system_prompt: prompts::compose(DEFAULT_MODELFILE_ROLE),
+            };
+            let suggested_name = modelfile::suggested_model_name(&params.base_model);
+            let path = modelfile::write_modelfile(&params)?;
+            println!("\n{} Modelfile written to: {}", "✔".bright_green(), path.display().to_string().bright_cyan());
+            println!("To register it with Ollama, run:\n  ollama create {} -f {}", suggested_name.bright_yellow(), path.display());
+        }
+
         Ok(())
     }
 }

@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use crate::ai::client::OllamaClient;
 use crate::ai::safety_interlock::verify_safety_interlock;
 use crate::utils::formatting::format_bytes;
-use crate::utils::system::{command_exists, confirm_prompt, is_root, run_cmd_status, run_cmd_stdout};
+use crate::utils::system::{command_exists, is_root, run_cmd_status, run_cmd_stdout, ActionPreview, RiskLevel};
 
 #[derive(Debug, Default, Clone)]
 pub struct ReclaimableItem {
@@ -101,25 +101,14 @@ pub fn estimate_reclaimable() -> ReclaimableSummary {
     }
 
     // 6. Journalctl Logs
-    if command_exists("journalctl") {
-        if let Ok(out) = run_cmd_stdout("journalctl", &["--disk-usage"]) {
-            let re = regex::Regex::new(r"([0-9.]+)([KMGT]B?)").ok();
-            if let Some(re) = re {
-                if let Some(caps) = re.captures(&out) {
-                    if let (Some(num_str), Some(unit_str)) = (caps.get(1), caps.get(2)) {
-                        let combined = format!("{}{}", num_str.as_str(), unit_str.as_str());
-                        let bytes = crate::utils::formatting::parse_size_to_bytes(&combined).unwrap_or(0);
-                        if bytes > 50 * 1024 * 1024 {
-                            // Only suggest if > 50MB
-                            items.push(ReclaimableItem {
-                                name: "Systemd Journal Logs".to_string(),
-                                description: "Archived system journal logs".to_string(),
-                                estimated_bytes: bytes,
-                            });
-                        }
-                    }
-                }
-            }
+    if let Some(bytes) = crate::utils::procfs::read_journal_size() {
+        if bytes > 50 * 1024 * 1024 {
+            // Only suggest if > 50MB
+            items.push(ReclaimableItem {
+                name: "Systemd Journal Logs".to_string(),
+                description: "Archived system journal logs".to_string(),
+                estimated_bytes: bytes,
+            });
         }
     }
 
@@ -157,8 +146,13 @@ pub fn clean_cache(dry_run: bool, auto_yes: bool, ollama: &OllamaClient, model: 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home/clever".to_string());
     let summary = estimate_reclaimable();
 
-    println!("Identified reclaimable artifacts: {}", format_bytes(summary.total_bytes).bright_yellow());
-    for item in &summary.items {
+    // clean_cache never touches the journal (that's clean_logs' job) — exclude
+    // it from what this command's own summary/preview promises to free.
+    let cache_items: Vec<_> = summary.items.iter().filter(|i| i.name != "Systemd Journal Logs").collect();
+    let cache_bytes: u64 = cache_items.iter().map(|i| i.estimated_bytes).sum();
+
+    println!("Identified reclaimable package/layer caches: {}", format_bytes(cache_bytes).bright_yellow());
+    for item in &cache_items {
         println!(
             "  • {:<35} : {}  {}",
             item.name.bold(),
@@ -172,7 +166,13 @@ pub fn clean_cache(dry_run: bool, auto_yes: bool, ollama: &OllamaClient, model: 
         return Ok(());
     }
 
-    if !verify_safety_interlock("System & User Package Caches", "purge and vacuum", ollama, model, auto_yes) {
+    let preview = ActionPreview {
+        action: "Purge package & layer caches (APT, Pip, UV, Conda, Docker, misc)".to_string(),
+        current_state: format!("{} reclaimable across {} cache locations", format_bytes(cache_bytes), cache_items.len()),
+        future_state: format!("~{} freed; caches repopulate automatically on next build/install", format_bytes(cache_bytes)),
+        risk: RiskLevel::Sensitive,
+    };
+    if !verify_safety_interlock(&preview, "System & User Package Caches", "purge and vacuum", ollama, model, auto_yes) {
         println!("{}", "Cleanup aborted by user.".yellow());
         return Ok(());
     }
@@ -247,7 +247,13 @@ pub fn clean_logs(days: u32, dry_run: bool, auto_yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    if !auto_yes && !confirm_prompt(&format!("Vacuum journalctl logs older than {} days?", days), true) {
+    let preview = ActionPreview {
+        action: format!("Vacuum journalctl logs older than {} days", days),
+        current_state: format!("Current journal disk usage: {}", before_usage.trim()),
+        future_state: "Journal shrinks to retain only recent entries; new logs continue accumulating normally".to_string(),
+        risk: RiskLevel::Safe,
+    };
+    if !auto_yes && !preview.confirm() {
         println!("{}", "Journal cleanup skipped.".yellow());
         return Ok(());
     }
@@ -269,15 +275,15 @@ pub fn clean_logs(days: u32, dry_run: bool, auto_yes: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn clean_tmp(min_age_hours: u32, dry_run: bool, auto_yes: bool) -> Result<()> {
-    println!("{}", format!("\n🗂 [bioclean free tmp] Safely Cleaning /tmp and /var/tmp (Age >= {}h)", min_age_hours).bright_cyan().bold());
-
+/// Scans /tmp and /var/tmp for items older than `min_age_hours`, returning
+/// (path, size, is_dir) for each. Shared by `clean_tmp` and the TUI's
+/// confirmation preview so both report the same real numbers.
+pub fn scan_stale_tmp(min_age_hours: u32) -> Vec<(PathBuf, u64, bool)> {
     let target_dirs = ["/tmp", "/var/tmp"];
     let now = SystemTime::now();
     let min_age = Duration::from_secs(min_age_hours as u64 * 3600);
 
     let mut eligible_files = Vec::new();
-    let mut total_bytes = 0u64;
 
     for dir in &target_dirs {
         let p = Path::new(dir);
@@ -293,7 +299,6 @@ pub fn clean_tmp(min_age_hours: u32, dry_run: bool, auto_yes: bool) -> Result<()
                     if let Ok(age) = now.duration_since(accessed) {
                         if age >= min_age {
                             let size = if meta.is_dir() { dir_size(&file_path) } else { meta.len() };
-                            total_bytes += size;
                             eligible_files.push((file_path, size, meta.is_dir()));
                         }
                     }
@@ -301,6 +306,14 @@ pub fn clean_tmp(min_age_hours: u32, dry_run: bool, auto_yes: bool) -> Result<()
             }
         }
     }
+    eligible_files
+}
+
+pub fn clean_tmp(min_age_hours: u32, dry_run: bool, auto_yes: bool) -> Result<()> {
+    println!("{}", format!("\n🗂 [bioclean free tmp] Safely Cleaning /tmp and /var/tmp (Age >= {}h)", min_age_hours).bright_cyan().bold());
+
+    let eligible_files = scan_stale_tmp(min_age_hours);
+    let total_bytes: u64 = eligible_files.iter().map(|(_, size, _)| size).sum();
 
     println!("Discovered {} stale temp items totaling {}", eligible_files.len().to_string().bright_yellow(), format_bytes(total_bytes).bright_yellow());
 
@@ -314,7 +327,13 @@ pub fn clean_tmp(min_age_hours: u32, dry_run: bool, auto_yes: bool) -> Result<()
         return Ok(());
     }
 
-    if !auto_yes && !confirm_prompt(&format!("Safely delete {} stale temp items ({})?", eligible_files.len(), format_bytes(total_bytes)), false) {
+    let preview = ActionPreview {
+        action: format!("Delete stale /tmp and /var/tmp items (age >= {}h)", min_age_hours),
+        current_state: format!("{} stale items totaling {}", eligible_files.len(), format_bytes(total_bytes)),
+        future_state: format!("{} items removed; {} freed on this filesystem", eligible_files.len(), format_bytes(total_bytes)),
+        risk: RiskLevel::Sensitive,
+    };
+    if !auto_yes && !preview.confirm() {
         println!("{}", "Temp cleanup skipped.".yellow());
         return Ok(());
     }
@@ -335,6 +354,17 @@ pub fn clean_tmp(min_age_hours: u32, dry_run: bool, auto_yes: bool) -> Result<()
     Ok(())
 }
 
+/// Counts packages `apt-get autoremove` would remove, via its `-s` (simulate)
+/// flag. Cheap enough to call for a confirmation preview. Shared by
+/// `clean_orphans` and the TUI so both report the same real count.
+pub fn scan_autoremove_count() -> usize {
+    if !command_exists("apt-get") {
+        return 0;
+    }
+    let sim_out = run_cmd_stdout("apt-get", &["autoremove", "-s"]).unwrap_or_default();
+    sim_out.lines().filter(|l| l.starts_with("Remv ")).count()
+}
+
 pub fn clean_orphans(dry_run: bool, auto_yes: bool) -> Result<()> {
     println!("{}", "\n📦 [bioclean free orphans] Removing Unneeded Package Dependencies".bright_cyan().bold());
 
@@ -348,7 +378,15 @@ pub fn clean_orphans(dry_run: bool, auto_yes: bool) -> Result<()> {
             return Ok(());
         }
 
-        if !auto_yes && !confirm_prompt("Autoremove unneeded package dependencies with apt?", false) {
+        let pkg_count = scan_autoremove_count();
+
+        let preview = ActionPreview {
+            action: "Autoremove unneeded package dependencies with apt".to_string(),
+            current_state: format!("{} package(s) marked as no longer needed", pkg_count),
+            future_state: format!("{} package(s) removed; their disk space freed", pkg_count),
+            risk: RiskLevel::Sensitive,
+        };
+        if !auto_yes && !preview.confirm() {
             println!("{}", "Autoremove skipped.".yellow());
             return Ok(());
         }

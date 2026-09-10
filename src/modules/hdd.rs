@@ -4,9 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use sysinfo::Disks;
 
+use crate::ai::client::OllamaClient;
+use crate::ai::safety_interlock::verify_safety_interlock;
 use crate::modules::history::HistoryManager;
 use crate::utils::formatting::format_bytes;
-use crate::utils::system::{confirm_prompt, run_cmd_status};
+use crate::utils::system::{run_cmd_status, ActionPreview, RiskLevel};
 
 #[derive(Debug, Clone)]
 pub struct HddMount {
@@ -81,7 +83,10 @@ pub fn list_external_hdds(json_output: bool) -> Result<Vec<HddMount>> {
 pub fn migrate_bio_datasets(
     target_hdd: Option<&str>,
     history_mgr: &HistoryManager,
+    dry_run: bool,
     auto_yes: bool,
+    ollama: &OllamaClient,
+    model: &str,
 ) -> Result<()> {
     let mounts = scan_external_mounts();
     let selected_mount: String = if let Some(t) = target_hdd {
@@ -105,6 +110,22 @@ pub fn migrate_bio_datasets(
         format!("{}/processed/trimmed", base_src),
     ];
 
+    if dry_run {
+        println!("{}", "🔎 [DRY RUN] Simulating dataset migration plan (no files will be moved):".bright_green().bold());
+        for src_str in &candidates {
+            let src_path = Path::new(src_str);
+            if src_path.exists() && !src_path.is_symlink() {
+                let cat_name = src_path.file_name().unwrap().to_string_lossy();
+                let dest_str = format!("{}/{}", base_dest, cat_name);
+                println!("  • Would move: {} -> {} (then symlink)", src_str.bright_cyan(), dest_str.bright_green());
+            } else if src_path.is_symlink() {
+                println!("  • Already symlinked: {}", src_str.dimmed());
+            }
+        }
+        println!("  • Would reconfigure NCBI SRA Toolkit cache to: {}/aidbio_storage/ncbi_cache", selected_mount);
+        return Ok(());
+    }
+
     let session_id = history_mgr.start_session()?;
     println!("Created transaction session: {}", session_id.bright_yellow());
 
@@ -117,12 +138,18 @@ pub fn migrate_bio_datasets(
 
             println!("\n  • Found local dataset: {}", src_str.bright_cyan());
 
-            if auto_yes || confirm_prompt(&format!("Move {} to external HDD ({}) and replace with symlink?", src_str, dest_str), false) {
+            let preview = ActionPreview {
+                action: "Move dataset to external HDD and replace with symlink".to_string(),
+                current_state: format!("{} is a local directory on the primary disk", src_str),
+                future_state: format!("{} moved to {}; {} becomes a symlink to it", src_str, dest_str, src_str),
+                risk: RiskLevel::Sensitive,
+            };
+            if verify_safety_interlock(&preview, src_str, "move and replace with symlink", ollama, model, auto_yes) {
                 println!("    Copying data via rsync...");
                 let _ = fs::create_dir_all(dest_path);
                 let _ = run_cmd_status("rsync", &["-av", "--progress", "--remove-source-files", &format!("{}/", src_str), &format!("{}/", dest_str)]);
                 let _ = fs::remove_dir_all(src_path);
-                
+
                 // Create symlink
                 #[cfg(unix)]
                 std::os::unix::fs::symlink(dest_path, src_path)?;
@@ -137,7 +164,13 @@ pub fn migrate_bio_datasets(
 
     // Configure NCBI SRA Toolkit cache
     let ncbi_cache = format!("{}/aidbio_storage/ncbi_cache", selected_mount);
-    if auto_yes || confirm_prompt(&format!("Reconfigure NCBI SRA Toolkit cache to HDD ({})?", ncbi_cache), true) {
+    let ncbi_preview = ActionPreview {
+        action: "Reconfigure NCBI SRA Toolkit cache location".to_string(),
+        current_state: "~/.ncbi/user-settings.mkfg points at the default local cache path".to_string(),
+        future_state: format!("~/.ncbi/user-settings.mkfg rewritten to cache at {}", ncbi_cache),
+        risk: RiskLevel::Safe,
+    };
+    if auto_yes || ncbi_preview.confirm() {
         reconfigure_ncbi_sra(&selected_mount)?;
     }
 

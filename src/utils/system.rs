@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use colored::*;
 use std::io::{self, Write};
 use std::process::{Command, Stdio};
 
@@ -53,6 +54,48 @@ pub fn confirm_prompt(msg: &str, default_yes: bool) -> bool {
         return default_yes;
     }
     trimmed == "y" || trimmed == "yes"
+}
+
+/// Classifies an action's blast radius so confirmation prompts pick a sane default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RiskLevel {
+    /// Reversible or idempotent: journal vacuum, fstrim, config writes.
+    Safe,
+    /// Destructive or hard to undo: file/dataset deletion, dataset moves.
+    Sensitive,
+}
+
+impl RiskLevel {
+    pub fn default_yes(self) -> bool {
+        matches!(self, RiskLevel::Safe)
+    }
+}
+
+/// A structured "what will change" preview shown before a confirmation prompt,
+/// so the user sees current state -> future state instead of a bare yes/no question.
+pub struct ActionPreview {
+    pub action: String,
+    pub current_state: String,
+    pub future_state: String,
+    pub risk: RiskLevel,
+}
+
+impl ActionPreview {
+    pub fn confirm(&self) -> bool {
+        let warning = if self.risk == RiskLevel::Sensitive {
+            format!("\n{}", "⚠ This action cannot be undone.".red())
+        } else {
+            String::new()
+        };
+        let msg = format!(
+            "{}\n  Current: {}\n  After:   {}{}",
+            self.action.bold(),
+            self.current_state,
+            self.future_state,
+            warning
+        );
+        confirm_prompt(&msg, self.risk.default_yes())
+    }
 }
 
 pub fn run_fstrim() -> Result<String> {

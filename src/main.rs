@@ -191,8 +191,8 @@ fn main() -> Result<()> {
             Some(HddAction::Scan { json }) => {
                 modules::hdd::list_external_hdds(json)?;
             }
-            Some(HddAction::Migrate { target_hdd, yes }) => {
-                modules::hdd::migrate_bio_datasets(target_hdd.as_deref(), &history_mgr, yes)?;
+            Some(HddAction::Migrate { target_hdd, dry_run, yes }) => {
+                modules::hdd::migrate_bio_datasets(target_hdd.as_deref(), &history_mgr, dry_run, yes, &ollama, &model)?;
             }
             Some(HddAction::ReconfigureSra { target_hdd }) => {
                 modules::hdd::reconfigure_ncbi_sra(&target_hdd)?;

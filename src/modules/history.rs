@@ -215,8 +215,14 @@ impl HistoryManager {
         }
 
         if !auto_yes {
-            use crate::utils::system::confirm_prompt;
-            if !confirm_prompt(&format!("Are you sure you want to revert session {}?", session_id), false) {
+            use crate::utils::system::{ActionPreview, RiskLevel};
+            let preview = ActionPreview {
+                action: format!("Revert migration session {}", session_id),
+                current_state: format!("{} operation(s) currently applied (symlinks in place)", session.operations.len()),
+                future_state: "Symlinks removed and original data restored from the external HDD".to_string(),
+                risk: RiskLevel::Sensitive,
+            };
+            if !preview.confirm() {
                 println!("{}", "Undo operation cancelled.".yellow());
                 return Ok(());
             }

@@ -6,10 +6,11 @@ use std::fs;
 
 use crate::ai::client::OllamaClient;
 use crate::ai::fallback::diagnose_fallback;
-use crate::ai::prompts::DIAGNOSE_SYSTEM_PROMPT;
+use crate::ai::prompts::{self, DIAGNOSE_ROLE};
 use crate::config::Config;
 use crate::modules::history::{HistoryManager, SessionRecord};
-use crate::utils::procfs::{read_active_sockets, read_cpu_governors, read_loadavg, read_meminfo, read_thermal_zones, MemInfo};
+use crate::utils::disks::read_internal_disks;
+use crate::utils::procfs::{read_active_sockets, read_cpu_governors, read_journal_size, read_loadavg, read_meminfo, read_thermal_zones, MemInfo};
 use crate::utils::report::{display_report, save_report};
 use crate::utils::system::run_cmd_stdout;
 
@@ -46,6 +47,18 @@ pub struct DiskTelemetry {
     pub used_percent: u32,
     pub total_human: String,
     pub avail_human: String,
+    /// Per-mount internal disk breakdown (excludes external/removable media).
+    #[serde(default)]
+    pub per_mount: Vec<InternalDiskTelemetry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InternalDiskTelemetry {
+    pub mount_point: String,
+    pub kind: String,
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub available_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +81,8 @@ pub struct LogAnomaliesTelemetry {
     pub dmesg_recent_sample: Vec<String>,
     pub journal_errors_count: usize,
     pub journal_recent_sample: Vec<String>,
+    #[serde(default)]
+    pub journal_size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,6 +231,16 @@ pub fn collect_diagnostic_snapshot(run_id: &str) -> SystemDiagnosticSnapshot {
             used_percent: root_used_pct,
             total_human: total_h,
             avail_human: avail_h,
+            per_mount: read_internal_disks()
+                .into_iter()
+                .map(|d| InternalDiskTelemetry {
+                    mount_point: d.mount_point,
+                    kind: d.kind,
+                    total_bytes: d.total_bytes,
+                    used_bytes: d.used_bytes,
+                    available_bytes: d.available_bytes,
+                })
+                .collect(),
         },
         thermals: ThermalTelemetry {
             max_temp_celsius: max_temp,
@@ -232,6 +257,7 @@ pub fn collect_diagnostic_snapshot(run_id: &str) -> SystemDiagnosticSnapshot {
             dmesg_recent_sample: dmesg_sample,
             journal_errors_count: journal_err_count,
             journal_recent_sample: journal_sample,
+            journal_size_bytes: read_journal_size(),
         },
         active_bio_workloads,
     }
@@ -282,7 +308,8 @@ Analyze the verified JSON diagnostic snapshot above according to your system pro
             snapshot_json
         );
 
-        match ollama.generate(model, &prompt, Some(DIAGNOSE_SYSTEM_PROMPT), Some(&config.ollama_options())) {
+        let system_prompt = prompts::compose(DIAGNOSE_ROLE);
+        match ollama.generate(model, &prompt, Some(&system_prompt), Some(&config.ollama_options())) {
             Ok(report) if !report.is_empty() => report,
             _ => {
                 println!("  ⚠️ AI synthesis failed or returned empty response. Falling back to heuristic diagnostic engine.");

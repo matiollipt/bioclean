@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
+use std::time::Instant;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ThermalZone {
@@ -329,6 +330,87 @@ pub fn read_meminfo() -> MemInfo {
         }
     }
     info
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PowerSource {
+    Battery,
+    Rapl,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PowerReading {
+    pub watts: f32,
+    pub source: PowerSource,
+}
+
+fn read_battery_power_now() -> Option<f32> {
+    // /sys/class/power_supply/BAT*/power_now is in microwatts, instantaneous.
+    for entry in fs::read_dir("/sys/class/power_supply").ok()?.flatten() {
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with("BAT") {
+            if let Ok(s) = fs::read_to_string(entry.path().join("power_now")) {
+                if let Ok(uw) = s.trim().parse::<f32>() {
+                    return Some(uw / 1_000_000.0);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Reads a power draw sample, trying battery `power_now` first (instantaneous,
+/// laptops only) then falling back to RAPL `energy_uj` (desktop/workstation,
+/// requires a delta between two samples over time). Returns `None` for the
+/// reading when unavailable on this system (most desktops without a battery
+/// or RAPL support) — this is an expected, non-error outcome, never a panic.
+/// The second element of the tuple is the new `(Instant, energy_uj)` sample to
+/// pass back in on the next call for the RAPL delta; `None` when not using RAPL.
+const RAPL_ENERGY_PATH: &str = "/sys/class/powercap/intel-rapl:0/energy_uj";
+
+/// True if this process was denied read access to the RAPL energy counter
+/// that exists on this system (common: root-only permissions), as opposed to
+/// the sensor simply not existing (no RAPL support, no battery).
+pub fn power_reading_permission_denied() -> bool {
+    Path::new(RAPL_ENERGY_PATH).exists() && fs::read_to_string(RAPL_ENERGY_PATH).is_err()
+}
+
+pub fn read_power_reading(prev: Option<(Instant, u64)>) -> (Option<PowerReading>, Option<(Instant, u64)>) {
+    if let Some(watts) = read_battery_power_now() {
+        return (Some(PowerReading { watts, source: PowerSource::Battery }), None);
+    }
+
+    if let Ok(s) = fs::read_to_string(RAPL_ENERGY_PATH) {
+        if let Ok(energy_uj) = s.trim().parse::<u64>() {
+            let now = Instant::now();
+            if let Some((prev_t, prev_e)) = prev {
+                let dt = now.duration_since(prev_t).as_secs_f32();
+                if dt > 0.0 {
+                    let watts = (energy_uj.saturating_sub(prev_e) as f32 / 1_000_000.0) / dt;
+                    return (Some(PowerReading { watts, source: PowerSource::Rapl }), Some((now, energy_uj)));
+                }
+            }
+            return (None, Some((now, energy_uj))); // first sample, no delta yet
+        }
+    }
+
+    (None, None) // genuinely unavailable on this system (no battery, no RAPL, or RAPL unreadable)
+}
+
+/// Extracts journal disk usage in bytes via `journalctl --disk-usage`.
+/// Shared by the telemetry panel and `free::estimate_reclaimable()` so the
+/// parsing logic lives in one place.
+pub fn read_journal_size() -> Option<u64> {
+    if !crate::utils::system::command_exists("journalctl") {
+        return None;
+    }
+    let out = crate::utils::system::run_cmd_stdout("journalctl", &["--disk-usage"]).ok()?;
+    let re = regex::Regex::new(r"([0-9.]+)([KMGT]B?)").ok()?;
+    let caps = re.captures(&out)?;
+    let num_str = caps.get(1)?.as_str();
+    let unit_str = caps.get(2)?.as_str();
+    let combined = format!("{}{}", num_str, unit_str);
+    crate::utils::formatting::parse_size_to_bytes(&combined)
 }
 
 pub fn read_loadavg() -> (f64, f64, f64) {

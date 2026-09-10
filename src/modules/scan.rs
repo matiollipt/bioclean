@@ -7,7 +7,7 @@ use walkdir::WalkDir;
 
 use crate::ai::client::OllamaClient;
 use crate::ai::fallback::heavy_scan_fallback;
-use crate::ai::prompts::HEAVY_SCAN_SYSTEM_PROMPT;
+use crate::ai::prompts::{self, HEAVY_SCAN_ROLE};
 use crate::utils::formatting::format_bytes;
 use crate::utils::procfs::read_active_sockets;
 
@@ -135,7 +135,8 @@ pub fn scan_heavy_files(
                 summary_input
             );
 
-            match ollama.generate(model, &prompt, Some(HEAVY_SCAN_SYSTEM_PROMPT), None) {
+            let system_prompt = prompts::compose(HEAVY_SCAN_ROLE);
+            match ollama.generate(model, &prompt, Some(&system_prompt), None) {
                 Ok(ai_out) if !ai_out.is_empty() => {
                     println!("{}", ai_out);
                 }
