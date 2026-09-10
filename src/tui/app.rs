@@ -126,7 +126,7 @@ impl App {
         match self.current_tab {
             TabItem::Dashboard => {
                 self.logs.push("Triggering full AI System Health Diagnostics...".to_string());
-                match crate::modules::diagnose::run_diagnose(&self.ollama, &self.model, None, false) {
+                match crate::modules::diagnose::run_diagnose(&self.ollama, &self.model, &self.config, None, false) {
                     Ok(_) => self.logs.push("✔ Diagnostics completed successfully!".to_string()),
                     Err(e) => self.logs.push(format!("✖ Diagnostics error: {}", e)),
                 }
@@ -213,6 +213,7 @@ impl App {
                             false,
                             &self.ollama,
                             &self.model,
+                            &self.config,
                         );
                     }
                     _ => {}

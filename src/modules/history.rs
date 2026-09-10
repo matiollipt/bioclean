@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+fn default_run_type() -> String {
+    "MIGRATION".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationRecord {
     pub op_type: String,
@@ -19,6 +23,14 @@ pub struct SessionRecord {
     pub session_id: String,
     pub timestamp: String,
     pub status: String,
+    #[serde(default = "default_run_type")]
+    pub run_type: String,
+    #[serde(default)]
+    pub report_path: Option<String>,
+    #[serde(default)]
+    pub snapshot_path: Option<String>,
+    #[serde(default)]
+    pub rollback_manifest_path: Option<String>,
     #[serde(default)]
     pub operations: Vec<OperationRecord>,
 }
@@ -55,18 +67,60 @@ impl HistoryManager {
         Ok(())
     }
 
+    pub fn generate_run_id(prefix: &str) -> String {
+        let now = Utc::now();
+        let pid = std::process::id();
+        let nanos = now.timestamp_subsec_nanos();
+        let suffix = ((pid as u64 ^ nanos as u64) & 0xFFFF) as u16;
+        format!("{}_{}_{:04x}", prefix, now.format("%Y%m%d_%H%M%S"), suffix)
+    }
+
+    pub fn get_session_dir(base_dir: &str, run_id: &str) -> PathBuf {
+        PathBuf::from(base_dir).join(run_id)
+    }
+
+    pub fn create_paired_session_dir(base_dir: &str, run_id: &str) -> Result<PathBuf> {
+        let path = Self::get_session_dir(base_dir, run_id);
+        fs::create_dir_all(&path)?;
+        Ok(path)
+    }
+
+    pub fn log_audit_trail(session_dir: &Path, message: &str) -> Result<()> {
+        let audit_file = session_dir.join("audit_trail.log");
+        let line = format!("[{}] {}\n", Utc::now().to_rfc3339(), message);
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(audit_file)?;
+        use std::io::Write;
+        file.write_all(line.as_bytes())?;
+        Ok(())
+    }
+
     pub fn start_session(&self) -> Result<String> {
-        let mut sessions = self.load_sessions()?;
-        let session_id = format!("session_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+        let session_id = Self::generate_run_id("session");
         let record = SessionRecord {
             session_id: session_id.clone(),
             timestamp: Utc::now().to_rfc3339(),
             status: "COMPLETED".to_string(),
+            run_type: "MIGRATION".to_string(),
+            report_path: None,
+            snapshot_path: None,
+            rollback_manifest_path: None,
             operations: Vec::new(),
         };
-        sessions.push(record);
-        self.save_sessions(&sessions)?;
+        self.record_session(record)?;
         Ok(session_id)
+    }
+
+    pub fn record_session(&self, record: SessionRecord) -> Result<()> {
+        let mut sessions = self.load_sessions()?;
+        if let Some(idx) = sessions.iter().position(|s| s.session_id == record.session_id) {
+            sessions[idx] = record;
+        } else {
+            sessions.push(record);
+        }
+        self.save_sessions(&sessions)
     }
 
     pub fn record_op(&self, session_id: &str, op_type: &str, src: &str, dest: &str, bytes: u64) -> Result<()> {
@@ -83,6 +137,10 @@ impl HistoryManager {
                 session_id: session_id.to_string(),
                 timestamp: Utc::now().to_rfc3339(),
                 status: "COMPLETED".to_string(),
+                run_type: "MIGRATION".to_string(),
+                report_path: None,
+                snapshot_path: None,
+                rollback_manifest_path: None,
                 operations: vec![OperationRecord {
                     op_type: op_type.to_string(),
                     src: src.to_string(),
@@ -102,23 +160,37 @@ impl HistoryManager {
             return Ok(());
         }
 
-        println!("{}", "\n📜 Transaction Session History:".bright_cyan().bold());
-        println!("{}", "=".repeat(75).dimmed());
+        println!("{}", "\n📜 Transaction & Diagnostic Session History:".bright_cyan().bold());
+        println!("{}", "=".repeat(80).dimmed());
 
         for s in &sessions {
             let status_badge = if s.status == "COMPLETED" {
                 s.status.green().bold()
+            } else if s.status == "REVERTED" {
+                s.status.yellow().bold()
             } else {
                 s.status.red().bold()
             };
             println!("• Session ID : {}", s.session_id.bright_yellow());
+            println!("  Type       : {}", s.run_type.cyan().bold());
             println!("  Status     : {}", status_badge);
             println!("  Timestamp  : {}", s.timestamp.dimmed());
-            println!("  Operations : {}", s.operations.len());
-            for op in &s.operations {
-                println!("    └─ [{}] {}  =>  {}", op.op_type.cyan(), op.src, op.dest.dimmed());
+            if let Some(ref r) = s.report_path {
+                println!("  Report     : {}", r.bright_green());
             }
-            println!("{}", "-".repeat(75).dimmed());
+            if let Some(ref sn) = s.snapshot_path {
+                println!("  Snapshot   : {}", sn.dimmed());
+            }
+            if let Some(ref rb) = s.rollback_manifest_path {
+                println!("  Rollback   : {}", rb.bright_purple());
+            }
+            if !s.operations.is_empty() {
+                println!("  Operations : {}", s.operations.len());
+                for op in &s.operations {
+                    println!("    └─ [{}] {}  =>  {}", op.op_type.cyan(), op.src, op.dest.dimmed());
+                }
+            }
+            println!("{}", "-".repeat(80).dimmed());
         }
         Ok(())
     }

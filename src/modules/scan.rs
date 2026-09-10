@@ -135,7 +135,7 @@ pub fn scan_heavy_files(
                 summary_input
             );
 
-            match ollama.generate(model, &prompt, Some(HEAVY_SCAN_SYSTEM_PROMPT)) {
+            match ollama.generate(model, &prompt, Some(HEAVY_SCAN_SYSTEM_PROMPT), None) {
                 Ok(ai_out) if !ai_out.is_empty() => {
                     println!("{}", ai_out);
                 }

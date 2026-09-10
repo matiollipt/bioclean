@@ -20,7 +20,7 @@ pub fn verify_safety_interlock(
             "Target path: {}\nAction: {}\nGenerate a single concise warning sentence starting with 'I see you are about to...'",
             target, action
         );
-        match ollama.generate(model, &prompt, Some(SAFETY_INTERLOCK_SYSTEM_PROMPT)) {
+        match ollama.generate(model, &prompt, Some(SAFETY_INTERLOCK_SYSTEM_PROMPT), None) {
             Ok(ai_resp) if !ai_resp.is_empty() => ai_resp,
             _ => safety_warning_fallback(target, action),
         }

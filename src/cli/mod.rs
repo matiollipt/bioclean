@@ -19,31 +19,13 @@ pub struct Cli {
     /// Launch full-screen interactive Terminal User Interface (TUI)
     #[arg(long)]
     pub tui: bool,
-
-    // Legacy flag aliases for clean-disk compatibility
-    /// [Legacy] Audit SSD usage, bio datasets, and system caches
-    #[arg(short = 'a', long)]
-    pub audit: bool,
-
-    /// [Legacy] Interactively clean caches and logs
-    #[arg(short = 'c', long)]
-    pub clean: bool,
-
-    /// [Legacy] Migrate bio datasets to external HDD & setup symlinks
-    #[arg(short = 'm', long)]
-    pub migrate: bool,
-
-    /// [Legacy] Undo / revert the last migration session
-    #[arg(short = 'u', long)]
-    pub undo: bool,
-
-    /// [Legacy] Display transaction history log
-    #[arg(short = 'l', long = "history-log")]
-    pub history_log: bool,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Inspect and modify configuration parameters or launch configuration wizard
+    Config(ConfigArgs),
+
     /// Space recovery and garbage collection
     Free(FreeArgs),
 
@@ -64,6 +46,42 @@ pub enum Commands {
 
     /// Transaction session logging and rollback engine
     History(HistoryArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub action: Option<ConfigAction>,
+
+    /// Set a configuration parameter directly: --param <SETTING> <VALUE>
+    #[arg(long, num_args = 2, value_names = ["SETTING", "VALUE"])]
+    pub param: Option<Vec<String>>,
+
+    /// List all current configuration settings
+    #[arg(short, long)]
+    pub list: bool,
+
+    /// Get the value of a single configuration setting
+    #[arg(short, long)]
+    pub get: Option<String>,
+
+    /// Reset configuration to factory defaults
+    #[arg(long)]
+    pub reset: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigAction {
+    /// Launch interactive configuration wizard
+    Wizard,
+    /// List all configuration parameters and their descriptions
+    List,
+    /// Get a specific configuration parameter
+    Get { key: String },
+    /// Set a specific configuration parameter
+    Set { key: String, value: String },
+    /// Reset configuration to factory defaults
+    Reset,
 }
 
 #[derive(Args, Debug)]

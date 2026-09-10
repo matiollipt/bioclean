@@ -18,12 +18,24 @@ struct ModelTag {
     name: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OllamaOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_ctx: Option<u32>,
+}
+
 #[derive(Debug, Serialize)]
 struct GenerateRequest<'a> {
     model: &'a str,
     prompt: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<&'a OllamaOptions>,
     stream: bool,
 }
 
@@ -95,12 +107,19 @@ impl OllamaClient {
         "qwen2.5-coder:7b".to_string()
     }
 
-    pub fn generate(&self, model: &str, prompt: &str, system: Option<&str>) -> Result<String> {
+    pub fn generate(
+        &self,
+        model: &str,
+        prompt: &str,
+        system: Option<&str>,
+        options: Option<&OllamaOptions>,
+    ) -> Result<String> {
         let url = format!("{}/api/generate", self.base_url);
         let body = GenerateRequest {
             model,
             prompt,
             system,
+            options,
             stream: false,
         };
 

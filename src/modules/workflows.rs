@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::ai::client::OllamaClient;
+use crate::config::Config;
 use crate::modules::diagnose::run_diagnose;
 use crate::modules::free::{clean_cache, clean_logs, clean_orphans};
 use crate::modules::power::set_performance_profile;
@@ -73,13 +74,14 @@ pub fn workflow_maintenance(
     auto_yes: bool,
     ollama: &OllamaClient,
     model: &str,
+    config: &Config,
 ) -> Result<()> {
     println!("{}", "\n🛠 [WORKFLOW] Running Complete Workstation Maintenance".bright_purple().bold());
     println!("{}", "=".repeat(75).dimmed());
 
     // 1. Audit & Diagnostics
     println!("\n{}", "Step 1/4: Running Comprehensive Health Diagnostics".bold());
-    let report = run_diagnose(ollama, model, None, false)?;
+    let report = run_diagnose(ollama, model, config, None, false)?;
 
     // 2. Space reclamation
     println!("\n{}", "Step 2/4: Executing Cache, Log & Orphan Cleanup".bold());
