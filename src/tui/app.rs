@@ -263,6 +263,12 @@ impl App {
                     future_state: "CPU governor set to powersave; reduced peripheral drain".to_string(),
                     risk: RiskLevel::Safe,
                 },
+                2 => ActionPreview {
+                    action: "Optimize dGPU, GNOME GPU-polling & Peripheral Power".to_string(),
+                    current_state: "dGPU may be kept awake by polling loops or persistence mode; TLP/powertop may be unconfigured".to_string(),
+                    future_state: "GPU polling stopped, dGPU D3cold enabled, persistence daemon masked, TLP + powertop enabled".to_string(),
+                    risk: RiskLevel::Safe,
+                },
                 _ => return None,
             },
             TabItem::Workflows => match sel {
@@ -331,6 +337,10 @@ impl App {
                     1 => {
                         self.logs.push("Switching to Battery / Power-save profile...".to_string());
                         let _ = crate::modules::power::set_battery_profile(dry_run);
+                    }
+                    2 => {
+                        self.logs.push("Optimizing dGPU, GNOME GPU-polling & peripheral power...".to_string());
+                        let _ = crate::modules::power::optimize_gpu_and_peripherals(dry_run);
                     }
                     _ => {}
                 }
@@ -459,7 +469,7 @@ pub fn run_tui<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result<(
                                 let max_items = match app.current_tab {
                                     TabItem::Dashboard => 1,
                                     TabItem::SpaceRecovery => 4,
-                                    TabItem::PowerThermal => 2,
+                                    TabItem::PowerThermal => 3,
                                     TabItem::Observability => 2,
                                     TabItem::Workflows => 2,
                                 };
@@ -469,7 +479,7 @@ pub fn run_tui<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result<(
                                 let max_items = match app.current_tab {
                                     TabItem::Dashboard => 1,
                                     TabItem::SpaceRecovery => 4,
-                                    TabItem::PowerThermal => 2,
+                                    TabItem::PowerThermal => 3,
                                     TabItem::Observability => 2,
                                     TabItem::Workflows => 2,
                                 };
@@ -611,6 +621,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             let items = vec![
                 ListItem::new("⚡ 1. Performance Profile (High CPU Governor, Max I/O Priority)"),
                 ListItem::new("🔋 2. Battery Profile (Powersave Governor, Low Peripheral Drain)"),
+                ListItem::new("🖥️ 3. Optimize dGPU, GNOME Polling & Peripherals (D3cold, TLP, Powertop)"),
             ];
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title(" ⚡ Power & Thermal Governor "))
@@ -688,7 +699,13 @@ fn ui(f: &mut Frame, app: &mut App) {
                         PowerSource::Battery => "Battery",
                         PowerSource::Rapl => "RAPL",
                     };
-                    Span::styled(format!("{:.1} W ({})", r.watts, src), Style::default().fg(Color::Yellow))
+                    match r.voltage {
+                        Some(v) => Span::styled(
+                            format!("{:.1} W, {:.2} V ({})", r.watts, v, src),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        None => Span::styled(format!("{:.1} W ({})", r.watts, src), Style::default().fg(Color::Yellow)),
+                    }
                 }
                 PowerDisplay::Sampling => Span::styled("sampling…", Style::default().fg(Color::DarkGray)),
                 PowerDisplay::Unavailable => Span::styled("unavailable on this system", Style::default().fg(Color::DarkGray)),

@@ -154,6 +154,9 @@ fn main() -> Result<()> {
             Some(PowerAction::Thermal { json }) => {
                 modules::power::monitor_thermal(json || args.json)?;
             }
+            Some(PowerAction::Optimize { dry_run }) => {
+                modules::power::optimize_gpu_and_peripherals(dry_run)?;
+            }
             None => {
                 modules::power::monitor_thermal(args.json)?;
             }

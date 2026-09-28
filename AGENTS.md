@@ -82,7 +82,7 @@ bioclean/
 │   ├── modules/
 │   │   ├── diagnose.rs         # Procfs/sysfs telemetry snapshot, JSON context, paired report generator
 │   │   ├── free.rs             # Cache cleanup (APT, pip, UV, conda, docker layers), logs, tmp, orphans
-│   │   ├── power.rs            # CPU governors (performance/powersave) and thermal monitoring
+│   │   ├── power.rs            # CPU governors (performance/powersave), thermal monitoring, and the dGPU/GNOME-polling/TLP/powertop `optimize` pass
 │   │   ├── scan.rs             # Heavy file inspection (rayon parallel) and active socket auditing
 │   │   ├── workflows.rs        # Multi-step agentic workflows (prepare-crunch, maintenance)
 │   │   ├── hdd.rs              # External drive auto-discovery, bio dataset migration, symlink engine

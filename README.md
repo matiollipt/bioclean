@@ -44,6 +44,7 @@ Every destructive action is preceded by an AI-verified diagnostic and safety int
 * **`bioclean power battery`**: Sets CPU governor to `powersave`, lowers frequency scaling, and minimizes peripheral power draw.
 * **`bioclean power performance`**: Configures CPU governor to `performance`, sets energy performance preference to maximum throughput, and boosts I/O priority for genomic sequence alignment or model training.
 * **`bioclean power thermal`**: Real-time observability of `/sys/class/thermal` zones, CPU package temperatures, critical trip points, and `thermald` daemon status.
+* **`bioclean power optimize`**: Diagnoses and fixes idle battery drain on hybrid-graphics (Intel iGPU + NVIDIA dGPU) laptops — stops background GPU-polling loops (e.g. the Astra Monitor GNOME extension's `nvidia-smi -lms` refresh, or stray polling scripts), enables NVIDIA D3cold runtime power management so the dGPU can fully sleep, masks the redundant `nvidia-persistenced` service, and installs/enables TLP + `powertop --auto-tune` for ongoing PCIe/USB/audio power management. Supports `--dry-run`.
 
 ### 🔍 `bioclean scan` (Deep Observability)
 * **`bioclean scan heavy --min-size 100M`**: Parallel high-speed directory inspection using Rayon with built-in bioinformatics dataset recognition (`.bam`, `.cram`, `.fastq`, `.fq.gz`, `.sra`, `.vcf`, `.h5ad`, checkpoints). Includes an AI storage summary explaining *why* folders are large.
@@ -110,6 +111,7 @@ bioclean free orphans
 bioclean power performance
 bioclean power battery
 bioclean power thermal --json
+bioclean power optimize --dry-run
 
 # Deep Observability & AI Scan
 bioclean scan heavy --path /home/clever/aidbio/ds --min-size 100M

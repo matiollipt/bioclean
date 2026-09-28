@@ -342,16 +342,24 @@ pub enum PowerSource {
 pub struct PowerReading {
     pub watts: f32,
     pub source: PowerSource,
+    /// Instantaneous battery voltage in volts, when the source is `Battery`.
+    /// RAPL has no notion of voltage, so this is always `None` for `Rapl`.
+    pub voltage: Option<f32>,
 }
 
-fn read_battery_power_now() -> Option<f32> {
-    // /sys/class/power_supply/BAT*/power_now is in microwatts, instantaneous.
+fn read_battery_power_now() -> Option<(f32, Option<f32>)> {
+    // /sys/class/power_supply/BAT*/power_now and voltage_now are in
+    // microwatts/microvolts, instantaneous.
     for entry in fs::read_dir("/sys/class/power_supply").ok()?.flatten() {
         let name = entry.file_name();
         if name.to_string_lossy().starts_with("BAT") {
             if let Ok(s) = fs::read_to_string(entry.path().join("power_now")) {
                 if let Ok(uw) = s.trim().parse::<f32>() {
-                    return Some(uw / 1_000_000.0);
+                    let voltage = fs::read_to_string(entry.path().join("voltage_now"))
+                        .ok()
+                        .and_then(|s| s.trim().parse::<f32>().ok())
+                        .map(|uv| uv / 1_000_000.0);
+                    return Some((uw / 1_000_000.0, voltage));
                 }
             }
         }
@@ -376,8 +384,8 @@ pub fn power_reading_permission_denied() -> bool {
 }
 
 pub fn read_power_reading(prev: Option<(Instant, u64)>) -> (Option<PowerReading>, Option<(Instant, u64)>) {
-    if let Some(watts) = read_battery_power_now() {
-        return (Some(PowerReading { watts, source: PowerSource::Battery }), None);
+    if let Some((watts, voltage)) = read_battery_power_now() {
+        return (Some(PowerReading { watts, source: PowerSource::Battery, voltage }), None);
     }
 
     if let Ok(s) = fs::read_to_string(RAPL_ENERGY_PATH) {
@@ -387,7 +395,7 @@ pub fn read_power_reading(prev: Option<(Instant, u64)>) -> (Option<PowerReading>
                 let dt = now.duration_since(prev_t).as_secs_f32();
                 if dt > 0.0 {
                     let watts = (energy_uj.saturating_sub(prev_e) as f32 / 1_000_000.0) / dt;
-                    return (Some(PowerReading { watts, source: PowerSource::Rapl }), Some((now, energy_uj)));
+                    return (Some(PowerReading { watts, source: PowerSource::Rapl, voltage: None }), Some((now, energy_uj)));
                 }
             }
             return (None, Some((now, energy_uj))); // first sample, no delta yet

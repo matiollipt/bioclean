@@ -163,6 +163,13 @@ pub enum PowerAction {
         #[arg(long)]
         json: bool,
     },
+    /// Diagnose and fix idle battery drain: stop background GPU-polling
+    /// loops, enable dGPU D3cold, retire nvidia-persistenced, bring up TLP
+    /// and powertop auto-tune
+    Optimize {
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Args, Debug)]
